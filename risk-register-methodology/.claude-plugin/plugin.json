@@ -1,0 +1,7 @@
+{
+  "name": "risk-register-methodology",
+  "description": "Enforces the ISO 31000 risk-register 12-field schema with per-field value judgment criteria (not just presence) for risk-register-entry facet documents.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

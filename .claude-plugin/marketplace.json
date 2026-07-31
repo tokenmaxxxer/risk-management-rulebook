@@ -8,6 +8,26 @@
       "name": "risk-management",
       "source": "./risk-management",
       "description": "The risk-management role on contract v3 (issue-160 round-3 promotion). Decides: 전사 리스크 노출이 허용 범위인가."
+    },
+    {
+      "name": "erm-verdict-methodology",
+      "source": "./erm-verdict-methodology",
+      "description": "Enforces ISO 31000:2018 process-clause shape (6.3-6.6) on erm-verdict facet documents. Composes into risk-management's phase-1 and phase-2 norms (issue-7)."
+    },
+    {
+      "name": "risk-register-methodology",
+      "source": "./risk-register-methodology",
+      "description": "Enforces the ISO 31000 risk-register 12-field schema with per-field judgment criteria on risk-register-entry facet documents. Composes into risk-management's phase-1 and phase-2 norms (issue-7)."
+    },
+    {
+      "name": "phase1-proposal-norms",
+      "source": "./phase1-proposal-norms",
+      "description": "Role-agnostic 기획서(phase-1) proposal writing norm: survey-before-proposal ordering, explicit phase-gate statement, canon-reference-only discipline (issue-7)."
+    },
+    {
+      "name": "phase2-record-norms",
+      "source": "./phase2-record-norms",
+      "description": "Role-agnostic 산출물(phase-2) record writing norm: record must backlink the phase-1 proposal it implements (issue-7)."
     }
   ]
 }
