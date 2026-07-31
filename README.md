@@ -20,12 +20,15 @@ claude plugin install risk-management
 ## Layout
 
 - `risk-management/.claude-plugin/plugin.json` — plugin manifest
-- `risk-management/hooks/hooks.json` — SessionStart + PreToolUse wiring
-- `risk-management/hooks/directive.sh` — SessionStart role directive
-- `risk-management/hooks/record-fields-gate.sh` — this role's record required-field gate
-- `risk-management/hooks/trailer-gate.sh` — commit `Subject: issue-<n>` trailer gate
-- `risk-management/hooks/handbook-trigger-gate.sh` — s21 handbook-sync gate
-- `risk-management/agents/warrant-hunter.md` — rotating-stance hunt agent
+- `risk-management/hooks/hooks.json` — SessionStart wiring (directive.sh only; the
+  trailer/record-fields/handbook-trigger gates are registered by core, not here —
+  core issue #66)
+- `risk-management/hooks/directive.sh` — thin stub sourcing core's
+  `core_role_directive` (core issue #66) with this role's own payload
+- `risk-management/hooks/record-fields.json` — this role's required-field set and
+  record path, read by core's record-fields gate per `CLAUDE_ROLE`
+- warrant-hunter agent — provided by core's `warrant/` plugin (core issue #63);
+  no local copy in this rulebook
 - `docs/specs/approvers.md` — Approve-authority allowlist (see below)
 
 This is scaffolding, not a finished rulebook: fill in doctrine detail,

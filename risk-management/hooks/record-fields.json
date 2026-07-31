@@ -1,0 +1,6 @@
+{
+  "role": "risk-management",
+  "required_fields": ["erm-verdict", "risk-register-entry", "mitigation-owner"],
+  "record_path_suffix": "/reports/risk-management.md",
+  "RECORD_FIELDS_TERMINAL_STATES": []
+}
