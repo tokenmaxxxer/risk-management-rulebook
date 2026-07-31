@@ -1,6 +1,20 @@
 {
   "role": "risk-management",
-  "required_fields": ["erm-verdict", "risk-register-entry", "mitigation-owner"],
+  "required_fields": [
+    "erm-verdict",
+    "mitigation-owner",
+    "risk-id",
+    "risk-description",
+    "risk-category",
+    "likelihood",
+    "impact",
+    "risk-score-inherent",
+    "existing-controls",
+    "risk-score-residual",
+    "risk-appetite-threshold",
+    "mitigation-plan",
+    "review-date"
+  ],
   "record_path_suffix": "/reports/risk-management.md",
   "RECORD_FIELDS_TERMINAL_STATES": []
 }
