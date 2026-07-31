@@ -10,6 +10,45 @@ generated as skeleton scaffolding by issue-170.
 - **write_scope**: []
 - **hand-off**: 개별 법규 컴플라이언스 세부는 → legal-compliance
 
+## Methodology
+
+Adopted per `docs/issue-1/proposals/risk-management-methodology.md`
+(approved issue-1): a two-standard pairing, not a single framework.
+
+- **COSO ERM (2017), 5-component structure** governs the shape of the ERM
+  verdict itself — the judgment must be traceable through
+  governance/context → objective linkage → assessment → response →
+  monitoring, so `erm-verdict` cannot be a bare accept/reject; it must show
+  which objective is at risk and what response tier follows.
+- **ISO 31000's process + risk register minimum field set** governs the
+  risk-register-entry artifact — the concrete, auditable record.
+
+Both are enterprise/organizational-scope standards, matching this role's
+`decides`/`use_when` above (broader than project-risk tools like PMBOK's
+risk register) — see the proposal for full rationale and sources.
+
+### Required record schema (risk-register-entry)
+
+| Field | Captures |
+|---|---|
+| `risk-id` | stable identifier for cross-reference across records |
+| `risk-description` | what could happen, in plain language |
+| `risk-category` | e.g. strategic/operational/financial/regulatory |
+| `likelihood` | qualitative or numeric likelihood rating |
+| `impact` | qualitative or numeric impact rating |
+| `risk-score-inherent` | likelihood x impact, before controls |
+| `existing-controls` | controls currently in place, if any |
+| `risk-score-residual` | likelihood x impact, after existing controls |
+| `risk-appetite-threshold` | the appetite level the residual score is judged against |
+| `mitigation-owner` | named accountable person |
+| `mitigation-plan` | the treatment action(s) |
+| `review-date` | next scheduled re-assessment |
+
+`erm-verdict` remains a required top-level field alongside this schema.
+Out of scope: quantitative/actuarial modeling (VaR, Monte Carlo) and
+heat-map visualization tooling — see the proposal's rationale section for
+why.
+
 ## Install
 
 ```
