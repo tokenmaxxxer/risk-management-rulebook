@@ -1,0 +1,7 @@
+{
+  "name": "erm-verdict-methodology",
+  "description": "Enforces ISO 31000:2018 risk-management process-clause shape (6.3 scope/context/criteria, 6.4 risk assessment, 6.5 risk treatment, 6.6 monitoring and review) on erm-verdict facet documents.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

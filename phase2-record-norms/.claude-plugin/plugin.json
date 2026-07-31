@@ -1,0 +1,7 @@
+{
+  "name": "phase2-record-norms",
+  "description": "Enforces the 산출물(phase-2) record writing norm: a phase-2 record must cite the phase-1 proposal it implements via an \"Implements:\" backlink — role-agnostic, composable into any role's phase-2 norm.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

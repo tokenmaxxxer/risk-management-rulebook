@@ -1,0 +1,7 @@
+{
+  "name": "phase1-proposal-norms",
+  "description": "Enforces the 기획서(phase-1) proposal writing norm (survey-before-proposal ordering, explicit phase-gate statement, canon-reference-only discipline) — role-agnostic, composable into any role's phase-1 norm.",
+  "author": {
+    "name": "Jung Jiwon & Lee Jongkwan"
+  }
+}

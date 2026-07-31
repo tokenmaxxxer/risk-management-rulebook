@@ -13,19 +13,52 @@ generated as skeleton scaffolding by issue-170.
 ## Methodology
 
 Adopted per `docs/issue-1/proposals/risk-management-methodology.md`
-(approved issue-1): a two-standard pairing, not a single framework.
+(approved issue-1) and mechanically enforced as a **plugin set** per
+`docs/issue-7/proposals/risk-management-plugin-enforcement.md` (approved
+issue-7): a two-standard pairing, not a single framework, each standard
+now owned by its own independent, self-contained plugin rather than
+embedded in `risk-management/` directly.
 
-- **COSO ERM (2017), 5-component structure** governs the shape of the ERM
-  verdict itself — the judgment must be traceable through
-  governance/context → objective linkage → assessment → response →
-  monitoring, so `erm-verdict` cannot be a bare accept/reject; it must show
-  which objective is at risk and what response tier follows.
-- **ISO 31000's process + risk register minimum field set** governs the
-  risk-register-entry artifact — the concrete, auditable record.
+- **ISO 31000:2018 process clauses (6.3-6.6)** — owned by the
+  `erm-verdict-methodology` plugin — govern the shape of the ERM verdict
+  itself: the judgment must be traceable through governance/context →
+  objective linkage → assessment → response → monitoring, so
+  `erm-verdict` cannot be a bare accept/reject; it must show which
+  objective is at risk and what response tier follows. (Earlier drafts
+  of this rulebook mislabeled this five-stage per-document process as
+  "COSO ERM 5-component structure" — COSO ERM 2017's actual five
+  components describe an entity-level framework, not a single verdict
+  document's section order; corrected in the issue-7 proposal's round-2
+  revision.)
+- **ISO 31000's risk register minimum field set** — owned by the
+  `risk-register-methodology` plugin — governs the risk-register-entry
+  artifact: the concrete, auditable record.
 
 Both are enterprise/organizational-scope standards, matching this role's
 `decides`/`use_when` above (broader than project-risk tools like PMBOK's
-risk register) — see the proposal for full rationale and sources.
+risk register) — see the proposals for full rationale and sources.
+
+### Plugin set (issue-7)
+
+Four sibling plugins compose into this role's phase-1 and phase-2 norms
+(`risk-management/hooks/directive.sh` sources and concatenates their
+directive fragments; each plugin independently registers its own
+`PreToolUse` gate, additive to core's generic record-fields gate):
+
+| Plugin | Methodology owned | Gate | Kill switch |
+|---|---|---|---|
+| `erm-verdict-methodology` | ISO 31000:2018 process-clause shape for `erm-verdict` | `hooks/erm-order-gate.sh` | `ERM_VERDICT_METHODOLOGY_GATE_OFF=1` |
+| `risk-register-methodology` | ISO 31000 12-field register schema | `hooks/register-fields-gate.sh` | `RISK_REGISTER_METHODOLOGY_GATE_OFF=1` |
+| `phase1-proposal-norms` (role-agnostic) | 기획서(phase-1) proposal writing norm | `hooks/proposal-shape-gate.sh` | `PHASE1_PROPOSAL_NORMS_GATE_OFF=1` |
+| `phase2-record-norms` (role-agnostic) | 산출물(phase-2) record writing norm | `hooks/record-shape-gate.sh` | `PHASE2_RECORD_NORMS_GATE_OFF=1` |
+
+Each plugin ships its own `.claude-plugin/plugin.json`, `hooks/hooks.json`,
+and `hooks/tests/run-gate-tests.sh`; its handbook lives at repo-root
+`docs/handbooks/<name>.md` per this repo's docs-layout convention. Each
+plugin is registered independently in `.claude-plugin/marketplace.json`. See
+`docs/issue-7/proposals/risk-management-plugin-enforcement.md` for the
+full design and `docs/issue-7/reports/risk-management.md` for the phase-2
+implementation record.
 
 ### Required record schema (risk-register-entry)
 
