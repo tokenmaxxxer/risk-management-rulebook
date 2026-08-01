@@ -24,179 +24,141 @@
 # Approve-gate responsibility with the human-followed role-handoff
 # contract process (contract v3 s19), not a script. This is a stated
 # limit, not a silently dropped requirement.
+#
+# Canon migration (issue-10 §1): sources core's gate-house standard
+# library instead of hand-rolling the trap/kill-switch/deny/parse/
+# reconstruct machinery.
+. "${CORE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT/../core}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
 
-set -u
+gate_kill_switch_active "${PHASE2_RECORD_NORMS_GATE_OFF:-}" || { trap - EXIT; exit 0; }
 
-__fc() {
-  local ec=$?
-  if [[ "$ec" != "0" && "$ec" != "2" ]]; then
-    echo "DENY::phase2-record-norms gate crashed unexpectedly (exit $ec) - failing closed" >&2
-    exit 2
-  fi
-  exit "$ec"
-}
-trap __fc EXIT
+command -v python3 >/dev/null 2>&1 || gate_deny "record-shape-gate" "python3 not found - failing closed"
+command -v git >/dev/null 2>&1 || gate_deny "record-shape-gate" "git not found - failing closed"
 
-# Kill switch, checked first.
-if [[ "${PHASE2_RECORD_NORMS_GATE_OFF:-}" == "1" ]]; then
-  exit 0
-fi
-
-# Dependency checks.
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "DENY::python3 not found - failing closed" >&2
-  exit 2
-fi
-if ! command -v git >/dev/null 2>&1; then
-  echo "DENY::git not found - failing closed" >&2
-  exit 2
-fi
-
-# Root discovery.
 ROOT="${CLAUDE_PROJECT_DIR:-}"
-if [[ -z "$ROOT" ]]; then
+if [ -z "$ROOT" ]; then
   ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 fi
-if [[ -z "$ROOT" || ! -d "$ROOT" ]]; then
-  echo "DENY::could not determine project root - failing closed" >&2
-  exit 2
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+  gate_deny "record-shape-gate" "could not determine project root - failing closed"
 fi
 
-PAYLOAD="$(cat)"
+PAYLOAD="$(cat 2>/dev/null || true)"
 
-RESULT="$(ROOT="$ROOT" PAYLOAD="$PAYLOAD" python3 <<'PYEOF'
-import json
-import os
-import re
-import sys
+if ! RESULT="$(ROOT="$ROOT" PAYLOAD="$PAYLOAD" GATE_LIB_PY="$GATE_LIB_PY" python3 <<'PYEOF'
+import importlib.util, json, os, re, sys
 
 root = os.environ["ROOT"]
 raw_payload = os.environ["PAYLOAD"]
 
-try:
-    payload = json.loads(raw_payload)
-except Exception:
-    print("DENY::malformed PreToolUse JSON payload - failing closed")
+_spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+gate_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gate_lib)
+
+
+def deny(msg):
+    print("DENY::" + msg)
     sys.exit(0)
+
+
+payload = gate_lib.gate_parse_json_or_deny(raw_payload, deny)
 
 tool_name = payload.get("tool_name")
 tool_input = payload.get("tool_input") or {}
 file_path = tool_input.get("file_path")
 
 if not tool_name or not file_path:
-    print("DENY::missing tool_name or file_path in payload - failing closed")
-    sys.exit(0)
+    deny("missing tool_name or file_path in payload - failing closed")
 
-# Normalize file_path to a repo-relative path for scoping.
-rel_path = file_path
-if os.path.isabs(rel_path):
-    try:
-        rel_path = os.path.relpath(rel_path, root)
-    except Exception:
-        print("DENY::could not resolve file_path relative to project root - failing closed")
-        sys.exit(0)
-rel_path = rel_path.replace(os.sep, "/")
+rel_path = gate_lib.gate_normalize_path(root, file_path)
 
 SCOPE_RE = re.compile(r"^docs/issue-[0-9]+/reports/[a-z-]+\.md$")
-m = SCOPE_RE.match(rel_path)
-if not m:
+if rel_path is None or not SCOPE_RE.match(rel_path):
     print("ALLOW::out of scope for phase2-record-norms gate")
     sys.exit(0)
 
-# Extract this record's own issue number.
 own_issue_m = re.match(r"^docs/issue-([0-9]+)/reports/[a-z-]+\.md$", rel_path)
 own_issue = own_issue_m.group(1)
 
-# Reconstruct resulting content per tool type.
 abs_path = file_path if os.path.isabs(file_path) else os.path.join(root, file_path)
 
-def read_existing():
+current = None
+if os.path.isfile(abs_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
+            current = f.read()
+    except OSError:
+        deny("could not read existing file - failing closed")
 
-content = None
-
-if tool_name == "Write":
-    content = tool_input.get("content")
-    if content is None:
-        print("DENY::Write tool_input missing content - failing closed")
-        sys.exit(0)
-
-elif tool_name == "Edit":
-    old_string = tool_input.get("old_string")
-    new_string = tool_input.get("new_string")
-    if old_string is None or new_string is None:
-        print("DENY::Edit tool_input missing old_string/new_string - failing closed")
-        sys.exit(0)
-    existing = read_existing()
-    if existing is None:
-        print("DENY::could not read existing file for Edit reconstruction - failing closed")
-        sys.exit(0)
-    if old_string not in existing:
-        print("DENY::Edit old_string not found in existing file - failing closed")
-        sys.exit(0)
-    content = existing.replace(old_string, new_string, 1)
-
-elif tool_name == "MultiEdit":
-    edits = tool_input.get("edits")
-    if not edits:
-        print("DENY::MultiEdit tool_input missing edits - failing closed")
-        sys.exit(0)
-    existing = read_existing()
-    if existing is None:
-        print("DENY::could not read existing file for MultiEdit reconstruction - failing closed")
-        sys.exit(0)
-    content = existing
-    for edit in edits:
-        old_string = edit.get("old_string")
-        new_string = edit.get("new_string")
-        if old_string is None or new_string is None:
-            print("DENY::MultiEdit edit entry missing old_string/new_string - failing closed")
-            sys.exit(0)
-        if old_string not in content:
-            print("DENY::MultiEdit old_string not found in reconstructed content - failing closed")
-            sys.exit(0)
-        content = content.replace(old_string, new_string, 1)
-
-else:
-    print("ALLOW::tool_name not Write/Edit/MultiEdit")
+if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+    print("ALLOW::tool_name not Write/Edit/MultiEdit/NotebookEdit")
     sys.exit(0)
 
-# Business logic: find "Implements:" backlink line.
+content, ok = gate_lib.gate_reconstruct_write(tool_name, tool_input, current)
+if not ok or content is None:
+    deny(
+        "old_string not found (or the tool input's shape makes the "
+        "resulting content undeterminable, tool=%r) - failing closed" % tool_name
+    )
+
+# Trigger-only special case (mandatory test 6): forces an uncaught
+# exception in the business logic below.
+if content.strip() == "__FORCE_INTERNAL_CRASH__":
+    raise RuntimeError("forced internal crash for regression test 6")
+
+
+def strip_fences_and_quotes(text):
+    lines = text.splitlines()
+    out = []
+    in_fence = False
+    for l in lines:
+        if re.match(r'^\s*(```|~~~)', l):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        if in_fence:
+            out.append("")
+            continue
+        if re.match(r'^\s*>', l):
+            out.append("")
+            continue
+        out.append(l)
+    return out
+
+
+checked_text = "\n".join(strip_fences_and_quotes(content))
+
 implements_re = re.compile(r"^Implements:\s*(.+)$", re.MULTILINE)
-match = implements_re.search(content)
+match = implements_re.search(checked_text)
 if not match:
-    print("DENY::no \"Implements:\" backlink line found - phase-2 record must cite the phase-1 proposal it implements")
-    sys.exit(0)
+    deny('no "Implements:" backlink line found - phase-2 record must cite the phase-1 proposal it implements')
 
 target = match.group(1).strip()
 proposal_re = re.compile(r"docs/issue-([0-9]+)/proposals/[^\s]+\.md")
 pm = proposal_re.search(target)
 if not pm:
-    print(f"DENY::\"Implements:\" backlink does not reference a docs/issue-<n>/proposals/*.md path (got: {target})")
-    sys.exit(0)
+    deny('"Implements:" backlink does not reference a docs/issue-<n>/proposals/*.md path (got: %s)' % target)
 
 target_issue = pm.group(1)
 if target_issue != own_issue:
-    print(f"DENY::\"Implements:\" backlink issue number ({target_issue}) does not match record's own issue number ({own_issue})")
-    sys.exit(0)
+    deny('"Implements:" backlink issue number (%s) does not match record\'s own issue number (%s)' % (target_issue, own_issue))
 
 print("ALLOW::Implements backlink present and issue numbers match")
 PYEOF
-)"
+)"; then
+  rc=$?
+  gate_deny "record-shape-gate" "internal judge crashed (rc=$rc) - failing closed"
+fi
 
 STATUS="${RESULT%%::*}"
 REASON="${RESULT#*::}"
 
-if [[ "$STATUS" == "ALLOW" ]]; then
-  exit 0
-elif [[ "$STATUS" == "DENY" ]]; then
-  echo "$REASON" >&2
-  exit 2
+if [ "$STATUS" = "ALLOW" ]; then
+  gate_allow
+elif [ "$STATUS" = "DENY" ]; then
+  gate_deny "record-shape-gate" "$REASON"
 else
-  echo "DENY::gate produced unrecognized output - failing closed" >&2
-  exit 2
+  gate_deny "record-shape-gate" "gate produced unrecognized output - failing closed: $RESULT"
 fi

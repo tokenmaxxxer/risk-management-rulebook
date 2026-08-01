@@ -54,19 +54,39 @@ are not equal.
 
 ## The marker convention the gate checks
 
-Each ISO 31000 process stage maps 1:1 to a grep-able Markdown heading,
-checked for presence and left-to-right document order (position
-comparison only — no semantic judgment of content quality):
+Updated per `docs/issue-10/proposals/risk-management-gate-a-plus-
+remediation.md` §2.4: the two headings that read as COSO-flavored
+vocabulary while the plugin claims ISO 31000 are corrected, and the
+check is now section-boundary-aware rather than a whole-document
+substring search (fenced code blocks and blockquotes no longer count).
+
+Four top-level ISO 31000 process stages map 1:1 to a Markdown heading,
+matched against a parsed section's heading text (not a raw substring
+search) and checked for presence plus left-to-right document order
+(position comparison only — no semantic judgment of content quality):
 
 1. `## Governance/context` — ISO 31000 §6.3
-2. `## Objective linkage` — ISO 31000 §6.3 (criteria sub-clause)
-3. `## Assessment` — ISO 31000 §6.4
-4. `## Response` — ISO 31000 §6.5
-5. `## Monitoring` — ISO 31000 §6.6
+2. `## Assessment` — ISO 31000 §6.4
+3. `## Risk treatment` — ISO 31000 §6.5 (previously "Response" —
+   corrected; "Response" is not an ISO 31000 clause name)
+4. `## Monitoring and review` — ISO 31000 §6.6 (previously
+   "Monitoring" — corrected to the full clause name)
+
+`Objective linkage` is **no longer a standalone top-level stage**. ISO
+31000 requires risk criteria to be set relative to objectives as part
+of §6.3, not as a separate document section, so it is now required as
+a sub-marker found *within* the Governance/context section (its own
+heading through the next heading of equal-or-higher level) — either as
+a nested heading or a labeled line inside that section — rather than
+appearing anywhere in the document.
+
+`risk-score-inherent` and `risk-score-residual` are likewise scoped:
+both must be found within the Assessment section specifically, not
+merely anywhere in the file.
 
 This convention is stated explicitly here (and in the directive
 fragment sourced by `risk-management/hooks/directive.sh`) so the gate
 script and the human/session author are working from the same
 contract — the gate cannot judge whether an objective is well-chosen or
-a mitigation plan is sound, only that the required stages exist and
-appear in order, with inherent and residual kept distinct.
+a mitigation plan is sound, only that the required stages exist, in
+the right section, in order, with inherent and residual kept distinct.

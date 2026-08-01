@@ -106,6 +106,90 @@ payload="$(make_payload 'Write' 'docs/issue-9/proposals/foo.md' 'no gate stuff a
 run_case "allow: kill switch set" "$payload" 0
 unset PHASE1_PROPOSAL_NORMS_GATE_OFF
 
+# ============================================================================
+# Mandatory test cases (issue-10 §3, 6 per plugin)
+# ============================================================================
+
+mkdir -p docs/issue-9/proposals
+
+# 1. Edit with replace_all: true against multiply-occurring old_string.
+DUP_CONTENT='# Proposal
+
+Status: Phase 1 proposal — APPROVE is out of scope for this PR.
+
+See docs/issue-9/reports/foo/survey.md for current-state findings.
+PLACEHOLDER note. PLACEHOLDER again.
+'
+printf '%s' "$DUP_CONTENT" > docs/issue-9/proposals/dup.md
+payload="$(python3 -c "
+import json
+print(json.dumps({'tool_name': 'Edit', 'tool_input': {
+  'file_path': 'docs/issue-9/proposals/dup.md',
+  'old_string': 'PLACEHOLDER', 'new_string': 'filled', 'replace_all': True
+}}))
+")"
+run_case "replace_all true replaces every occurrence" "$payload" 0
+
+# 2. MultiEdit with mixed replace_all true/false edits.
+MULTI_CONTENT='# Proposal
+
+Status: Phase 1 proposal — APPROVE is out of scope for this PR.
+
+See docs/issue-9/reports/foo/survey.md for current-state findings.
+AAA BBB note.
+'
+printf '%s' "$MULTI_CONTENT" > docs/issue-9/proposals/multi.md
+payload="$(python3 -c "
+import json
+print(json.dumps({'tool_name': 'MultiEdit', 'tool_input': {
+  'file_path': 'docs/issue-9/proposals/multi.md',
+  'edits': [
+    {'old_string': 'AAA', 'new_string': 'XXX', 'replace_all': True},
+    {'old_string': 'BBB', 'new_string': 'YYY', 'replace_all': False},
+  ],
+}}))
+")"
+run_case "MultiEdit honors each edit's own replace_all flag" "$payload" 0
+
+# 3. Malformed JSON: truncated, non-object top level, empty payload -> deny not crash.
+run_case "deny: truncated JSON" '{"tool_name": "Write"' 2
+run_case "deny: non-object top-level JSON" '["not", "an", "object"]' 2
+run_case "deny: empty payload" '' 2
+
+# 4. Kill switch set to an unrecognized/typo value -> gate stays ACTIVE.
+payload="$(make_payload 'Write' 'docs/issue-9/proposals/foo.md' 'garbage')"
+out="$(printf '%s' "$payload" | PHASE1_PROPOSAL_NORMS_GATE_OFF=onn bash "$GATE" 2>&1)"
+ec=$?
+if [ "$ec" = 2 ]; then
+  echo "PASS: deny: kill switch unrecognized value keeps gate active"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: deny: kill switch unrecognized value keeps gate active (exit=$ec; output: $out)"
+  FAIL=$((FAIL+1))
+fi
+
+# 5. Absolute file_path matching the same scope a relative-path fixture
+#    already matches, plus a ./-prefixed variant.
+printf '%s' "$GOOD_CONTENT" > docs/issue-9/proposals/abscheck.md
+payload="$(make_payload 'Write' "$WORKDIR/docs/issue-9/proposals/abscheck.md" "$GOOD_CONTENT")"
+run_case "allow: absolute file_path normalizes to in-scope" "$payload" 0
+
+payload="$(make_payload 'Write' './docs/issue-9/proposals/dotcheck.md' "$GOOD_CONTENT")"
+run_case "allow: ./-prefixed file_path normalizes to in-scope" "$payload" 0
+
+# 6. Internal-judge-crash simulation: JSON-valid input the business logic
+#    mishandles, forcing an uncaught exception -> deny with a crash reason.
+payload="$(make_payload 'Write' 'docs/issue-9/proposals/crash.md' '__FORCE_INTERNAL_CRASH__')"
+out="$(printf '%s' "$payload" | bash "$GATE" 2>&1)"
+ec=$?
+if [ "$ec" = 2 ] && printf '%s' "$out" | grep -q "crashed"; then
+  echo "PASS: deny: internal judge crash fails closed"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: deny: internal judge crash fails closed (exit=$ec; output: $out)"
+  FAIL=$((FAIL+1))
+fi
+
 echo ""
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -ne 0 ]; then

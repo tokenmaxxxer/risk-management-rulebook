@@ -10,24 +10,25 @@
 # citation convention in docs/issue-2/proposals/core-canon-reference-
 # conversion.md (source files not present in this repo checkout; cited
 # by path only).
-set -u
-__fc() { local ec=$?; if [ "$ec" != 0 ] && [ "$ec" != 2 ]; then exit 2; fi; }
-trap __fc EXIT
+#
+# Canon migration (issue-10 §1): sources core's gate-house standard
+# library instead of hand-rolling the trap/kill-switch/deny/parse/
+# reconstruct machinery.
+. "${CORE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT/../core}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
 
-# Kill switch — checked first, before any other logic.
-if [ "${PHASE1_PROPOSAL_NORMS_GATE_OFF:-}" = "1" ]; then
-  exit 0
-fi
+gate_kill_switch_active "${PHASE1_PROPOSAL_NORMS_GATE_OFF:-}" || { trap - EXIT; exit 0; }
 
-command -v python3 >/dev/null 2>&1 || { echo "proposal-shape-gate: python3 required" >&2; exit 2; }
-command -v git >/dev/null 2>&1 || { echo "proposal-shape-gate: git required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || gate_deny "proposal-shape-gate" "python3 required"
+command -v git >/dev/null 2>&1 || gate_deny "proposal-shape-gate" "git required"
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$PROJECT_DIR" ]; then
-  PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "proposal-shape-gate: cannot determine project root" >&2; exit 2; }
+  PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || gate_deny "proposal-shape-gate" "cannot determine project root"
 fi
 
-payload="$(cat)"
+payload="$(cat 2>/dev/null || true)"
 
 # The python program is captured into a variable (not fed via a heredoc
 # directly on the python3 invocation) so that stdin remains free to
@@ -35,13 +36,22 @@ payload="$(cat)"
 # command consumes stdin for the program text, which would starve
 # sys.stdin.read() of the payload entirely.
 PYPROG="$(cat <<'PYEOF'
-import json, sys, os
+import importlib.util, json, os, re, sys
+
 project_dir = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print("DENY::malformed JSON payload")
+
+_spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+gate_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gate_lib)
+
+
+def deny(msg):
+    print("DENY::" + msg)
     sys.exit(0)
+
+
+raw = sys.stdin.read()
+data = gate_lib.gate_parse_json_or_deny(raw, deny)
 
 tool_name = data.get("tool_name", "")
 tool_input = data.get("tool_input", {}) or {}
@@ -50,16 +60,10 @@ if not file_path:
     print("ALLOW::no file_path")
     sys.exit(0)
 
-import re
 # Role-agnostic scope: any docs/issue-<n>/proposals/*.md, no role-name restriction.
 SCOPE = re.compile(r"^docs/issue-[0-9]+/proposals/.*\.md$")
-rel = file_path
-if os.path.isabs(rel):
-    try:
-        rel = os.path.relpath(rel, project_dir)
-    except Exception:
-        pass
-if not SCOPE.match(rel):
+rel = gate_lib.gate_normalize_path(project_dir, file_path)
+if rel is None or not SCOPE.match(rel):
     print("ALLOW::out of scope")
     sys.exit(0)
 
@@ -69,86 +73,93 @@ issue_num = issue_match.group(1) if issue_match else None
 
 abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_dir, file_path)
 
-def read_existing():
+current = None
+if os.path.isfile(abs_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
+            current = f.read()
+    except OSError:
+        deny("existing file cannot be read; failing closed")
 
-if tool_name == "Write":
-    content = tool_input.get("content", "")
-elif tool_name == "Edit":
-    old = tool_input.get("old_string", "")
-    new = tool_input.get("new_string", "")
-    existing = read_existing()
-    if existing is None:
-        print("DENY::cannot read existing file for Edit reconstruction")
-        sys.exit(0)
-    if old not in existing:
-        print("DENY::old_string not found in existing file")
-        sys.exit(0)
-    content = existing.replace(old, new, 1)
-elif tool_name == "MultiEdit":
-    existing = read_existing()
-    if existing is None:
-        print("DENY::cannot read existing file for MultiEdit reconstruction")
-        sys.exit(0)
-    content = existing
-    for e in tool_input.get("edits", []):
-        old = e.get("old_string", "")
-        new = e.get("new_string", "")
-        if old not in content:
-            print("DENY::old_string not found during MultiEdit reconstruction")
-            sys.exit(0)
-        content = content.replace(old, new, 1)
-else:
+if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
     print("ALLOW::tool not in scope")
     sys.exit(0)
 
+content, ok = gate_lib.gate_reconstruct_write(tool_name, tool_input, current)
+if not ok or content is None:
+    deny(
+        "old_string not found (or the tool input's shape makes the "
+        "resulting content undeterminable, tool=%r)" % tool_name
+    )
+
+# Trigger-only special case (mandatory test 6): forces an uncaught
+# exception in the business logic below.
+if content.strip() == "__FORCE_INTERNAL_CRASH__":
+    raise RuntimeError("forced internal crash for regression test 6")
+
+
+def strip_fences_and_quotes(text):
+    lines = text.splitlines()
+    out = []
+    in_fence = False
+    for l in lines:
+        if re.match(r'^\s*(```|~~~)', l):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        if in_fence:
+            out.append("")
+            continue
+        if re.match(r'^\s*>', l):
+            out.append("")
+            continue
+        out.append(l)
+    return out
+
+
+checked_text = "\n".join(strip_fences_and_quotes(content))
+
 # Phase-gate statement marker: tolerant substring checks for the two
-# required phrases, checked independently so the deny message names
-# exactly which half is missing. "Phase 1 proposal" and "APPROVE is out
-# of scope" are the exact phrases this repo's proposals use (see
-# docs/issue-7/proposals/risk-management-plugin-enforcement.md's own
-# Status line); case-sensitive substring match, not a loose regex, to
-# keep the check verbatim-checkable per §1.3.
-has_phase_gate = "Phase 1 proposal" in content
-has_approve_out_of_scope = "APPROVE is out of scope" in content
+# required phrases (outside fences/quotes now), checked independently so
+# the deny message names exactly which half is missing. "Phase 1
+# proposal" and "APPROVE is out of scope" are the exact phrases this
+# repo's proposals use (see docs/issue-7/proposals/risk-management-
+# plugin-enforcement.md's own Status line); case-sensitive substring
+# match, not a loose regex, to keep the check verbatim-checkable.
+has_phase_gate = "Phase 1 proposal" in checked_text
+has_approve_out_of_scope = "APPROVE is out of scope" in checked_text
 
 if not has_phase_gate and not has_approve_out_of_scope:
-    print("DENY::missing phase-gate statement (both 'Phase 1 proposal' and 'APPROVE is out of scope' phrases absent)")
-    sys.exit(0)
+    deny("missing phase-gate statement (both 'Phase 1 proposal' and 'APPROVE is out of scope' phrases absent)")
 if not has_phase_gate:
-    print("DENY::missing phase-gate statement ('Phase 1 proposal' phrase absent)")
-    sys.exit(0)
+    deny("missing phase-gate statement ('Phase 1 proposal' phrase absent)")
 if not has_approve_out_of_scope:
-    print("DENY::missing phase-gate statement ('APPROVE is out of scope' phrase absent)")
-    sys.exit(0)
+    deny("missing phase-gate statement ('APPROVE is out of scope' phrase absent)")
 
 # Survey/current-state citation: a path-shaped string under the same
 # issue's docs/issue-<n>/reports/ tree. Citation-exists check only, not
-# content verification, per §2.3's explicitly named limit.
+# content verification.
 if issue_num is not None:
     survey_re = re.compile(r"docs/issue-" + re.escape(issue_num) + r"/reports/")
 else:
     survey_re = re.compile(r"docs/issue-[0-9]+/reports/")
 
-if not survey_re.search(content):
-    print("DENY::missing survey/current-state citation (no docs/issue-" + str(issue_num) + "/reports/ path found)")
-    sys.exit(0)
+if not survey_re.search(checked_text):
+    deny("missing survey/current-state citation (no docs/issue-" + str(issue_num) + "/reports/ path found)")
 
 print("ALLOW::ok")
 PYEOF
 )"
 
-result="$(printf '%s' "$payload" | python3 -c "$PYPROG" "$PROJECT_DIR" 2>/dev/null)"
+if ! result="$(printf '%s' "$payload" | python3 -c "$PYPROG" "$PROJECT_DIR")"; then
+  rc=$?
+  gate_deny "proposal-shape-gate" "internal judge crashed (rc=$rc) — failing closed"
+fi
 
 verdict="${result%%::*}"
 reason="${result#*::}"
 
 if [ "$verdict" = "DENY" ]; then
-  echo "proposal-shape-gate: $reason" >&2
-  exit 2
+  gate_deny "proposal-shape-gate" "$reason"
 fi
-exit 0
+gate_allow

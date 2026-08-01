@@ -4,141 +4,198 @@
 # erm-verdict facet documents. Structure adapted (cited by path, no
 # script body copied) from pricing-rulebook/pricing/hooks/methodology-gate.sh
 # and implementation-rulebook/coding/hooks/coding-progress-gate.sh.
-set -u
-__fc() { local ec=$?; if [ "$ec" != 0 ] && [ "$ec" != 2 ]; then exit 2; fi; }
-trap __fc EXIT
+#
+# Canon migration (issue-10 §1): sources core's gate-house standard
+# library instead of hand-rolling the trap/kill-switch/deny/parse/
+# reconstruct machinery.
+. "${CORE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT/../core}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
 
-# Kill switch — checked first, before any other logic.
-if [ "${ERM_VERDICT_METHODOLOGY_GATE_OFF:-}" = "1" ]; then
-  exit 0
-fi
+gate_kill_switch_active "${ERM_VERDICT_METHODOLOGY_GATE_OFF:-}" || { trap - EXIT; exit 0; }
 
-command -v python3 >/dev/null 2>&1 || { echo "erm-order-gate: python3 required" >&2; exit 2; }
-command -v git >/dev/null 2>&1 || { echo "erm-order-gate: git required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || gate_deny "erm-order-gate" "python3 required"
+command -v git >/dev/null 2>&1 || gate_deny "erm-order-gate" "git required"
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$PROJECT_DIR" ]; then
-  PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "erm-order-gate: cannot determine project root" >&2; exit 2; }
+  PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || gate_deny "erm-order-gate" "cannot determine project root"
 fi
 
-payload="$(cat)"
+payload="$(cat 2>/dev/null || true)"
 
-# Extract tool_name, file_path, and reconstruct resulting content via python3.
 # The python source is written to a temp file first (rather than fed via a
 # heredoc directly on the python3 invocation) because a heredoc attached to
 # a command consumes that command's stdin, which would otherwise clobber
 # the piped-in $payload before python ever sees it.
 PYSCRIPT="$(mktemp)"
 cat > "$PYSCRIPT" <<'PYEOF'
-import json, sys, os
+import importlib.util, json, os, re, sys
+
 project_dir = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print("DENY::malformed JSON payload")
+
+_spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+gate_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gate_lib)
+
+
+def deny(msg):
+    print("DENY::" + msg)
     sys.exit(0)
 
-tool_name = data.get("tool_name", "")
-tool_input = data.get("tool_input", {}) or {}
+
+raw = sys.stdin.read()
+event = gate_lib.gate_parse_json_or_deny(raw, deny)
+
+tool_name = event.get("tool_name", "")
+tool_input = event.get("tool_input", {}) or {}
 file_path = tool_input.get("file_path", "")
 if not file_path:
     print("ALLOW::no file_path")
     sys.exit(0)
 
-import re
 SCOPE = re.compile(r"^docs/issue-[0-9]+/(proposals/.*risk-management.*|reports/risk-management)\.md$")
-rel = file_path
-if os.path.isabs(rel):
-    try:
-        rel = os.path.relpath(rel, project_dir)
-    except Exception:
-        pass
-if not SCOPE.match(rel):
+rel = gate_lib.gate_normalize_path(project_dir, file_path)
+if rel is None or not SCOPE.match(rel):
     print("ALLOW::out of scope")
     sys.exit(0)
 
 abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_dir, file_path)
 
-def read_existing():
+current = None
+if os.path.isfile(abs_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
+            current = f.read()
+    except OSError:
+        deny("existing file cannot be read; failing closed")
 
-if tool_name == "Write":
-    content = tool_input.get("content", "")
-elif tool_name == "Edit":
-    old = tool_input.get("old_string", "")
-    new = tool_input.get("new_string", "")
-    existing = read_existing()
-    if existing is None:
-        print("DENY::cannot read existing file for Edit reconstruction")
-        sys.exit(0)
-    if old not in existing:
-        print("DENY::old_string not found in existing file")
-        sys.exit(0)
-    content = existing.replace(old, new, 1)
-elif tool_name == "MultiEdit":
-    existing = read_existing()
-    if existing is None:
-        print("DENY::cannot read existing file for MultiEdit reconstruction")
-        sys.exit(0)
-    content = existing
-    for e in tool_input.get("edits", []):
-        old = e.get("old_string", "")
-        new = e.get("new_string", "")
-        if old not in content:
-            print("DENY::old_string not found during MultiEdit reconstruction")
-            sys.exit(0)
-        content = content.replace(old, new, 1)
-else:
+if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
     print("ALLOW::tool not in scope")
     sys.exit(0)
 
+content, ok = gate_lib.gate_reconstruct_write(tool_name, tool_input, current)
+if not ok or content is None:
+    deny(
+        "old_string not found (or the tool input's shape makes the "
+        "resulting content undeterminable, tool=%r); use Write for full "
+        "content, or an Edit/MultiEdit whose old_string matches the "
+        "current content" % tool_name
+    )
+
+# --- issue-10 §2: section/adjacency/structure-aware semantic check --------
+
+def strip_fences_and_quotes(text):
+    lines = text.splitlines()
+    out = []
+    in_fence = False
+    for l in lines:
+        if re.match(r'^\s*(```|~~~)', l):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        if in_fence:
+            out.append("")
+            continue
+        if re.match(r'^\s*>', l):
+            out.append("")
+            continue
+        out.append(l)
+    return out
+
+
+def parse_sections(lines):
+    heading_idx = [i for i, l in enumerate(lines) if re.match(r'^(#{1,6})\s+\S', l)]
+    sections = []
+    for pos, i in enumerate(heading_idx):
+        m = re.match(r'^(#{1,6})\s+(.*)$', lines[i])
+        level = len(m.group(1))
+        text = m.group(2).strip()
+        end = len(lines)
+        for j in heading_idx[pos + 1:]:
+            m2 = re.match(r'^(#{1,6})\s+(.*)$', lines[j])
+            if len(m2.group(1)) <= level:
+                end = j
+                break
+        sections.append({"level": level, "text": text, "start": i, "end": end})
+    return sections
+
+
+def norm(s):
+    return re.sub(r'\s+', ' ', s.strip()).lower()
+
+
+lines = strip_fences_and_quotes(content)
+sections = parse_sections(lines)
+
+# Trigger-only special case (mandatory test 6): forcing an internal crash
+# by malformed-but-JSON-valid input the business logic mishandles. A
+# document consisting solely of this exact marker forces an uncaught
+# exception here so the crash-path (§1.1 rc-check) is exercisable by a
+# real gate run.
+if content.strip() == "__FORCE_INTERNAL_CRASH__":
+    raise RuntimeError("forced internal crash for regression test 6")
+
 STAGES = [
-    "## Governance/context",
-    "## Objective linkage",
-    "## Assessment",
-    "## Response",
-    "## Monitoring",
+    "Governance/context",
+    "Assessment",
+    "Risk treatment",
+    "Monitoring and review",
 ]
+
+def find_section(name):
+    for sec in sections:
+        if norm(sec["text"]) == norm(name):
+            return sec
+    return None
+
 positions = []
-for s in STAGES:
-    idx = content.find(s)
-    if idx == -1:
-        print(f"DENY::missing required stage marker: {s}")
-        sys.exit(0)
-    positions.append((s, idx))
+for stage in STAGES:
+    sec = find_section(stage)
+    if sec is None:
+        deny("missing required stage marker: ## %s" % stage)
+    positions.append((stage, sec["start"]))
 
 for i in range(1, len(positions)):
-    if positions[i][1] < positions[i-1][1]:
-        print(f"DENY::stage markers out of order: {positions[i][0]} appears before {positions[i-1][0]}")
-        sys.exit(0)
+    if positions[i][1] < positions[i - 1][1]:
+        deny("stage markers out of order: %s appears before %s" % (positions[i][0], positions[i - 1][0]))
 
-inherent = re.search(r"risk-score-inherent[:\s]+([^\n]+)", content)
-residual = re.search(r"risk-score-residual[:\s]+([^\n]+)", content)
+# "Objective linkage" is now a sub-marker under Governance/context, not a
+# standalone top-level stage (issue-10 §2.4 ISO 31000 vocabulary fix).
+gov = find_section("Governance/context")
+gov_body = "\n".join(lines[gov["start"]:gov["end"]])
+if not (find_section("Objective linkage") and gov["start"] <= find_section("Objective linkage")["start"] < gov["end"]) \
+   and "objective linkage" not in norm(gov_body):
+    deny("Governance/context section is missing the Objective linkage sub-marker")
+
+# risk-score-inherent/residual must live in the Assessment section, not
+# merely anywhere in the document.
+assessment = find_section("Assessment")
+assessment_body = "\n".join(lines[assessment["start"]:assessment["end"]])
+
+inherent = re.search(r"risk-score-inherent[:\s]+([^\n]+)", assessment_body)
+residual = re.search(r"risk-score-residual[:\s]+([^\n]+)", assessment_body)
 if not inherent:
-    print("DENY::missing risk-score-inherent label")
-    sys.exit(0)
+    deny("missing risk-score-inherent label within the Assessment section")
 if not residual:
-    print("DENY::missing risk-score-residual label")
-    sys.exit(0)
+    deny("missing risk-score-residual label within the Assessment section")
 if inherent.group(1).strip() == residual.group(1).strip():
-    print("DENY::risk-score-inherent and risk-score-residual share the same value — must be distinct")
-    sys.exit(0)
+    deny("risk-score-inherent and risk-score-residual share the same value — must be distinct")
 
 print("ALLOW::ok")
 PYEOF
 
-result="$(printf '%s' "$payload" | python3 "$PYSCRIPT" "$PROJECT_DIR" 2>/dev/null)"
+if ! result="$(printf '%s' "$payload" | python3 "$PYSCRIPT" "$PROJECT_DIR")"; then
+  rc=$?
+  rm -f "$PYSCRIPT"
+  gate_deny "erm-order-gate" "internal judge crashed (rc=$rc) — failing closed"
+fi
 rm -f "$PYSCRIPT"
 
 verdict="${result%%::*}"
 reason="${result#*::}"
 
 if [ "$verdict" = "DENY" ]; then
-  echo "erm-order-gate: $reason" >&2
-  exit 2
+  gate_deny "erm-order-gate" "$reason"
 fi
-exit 0
+gate_allow

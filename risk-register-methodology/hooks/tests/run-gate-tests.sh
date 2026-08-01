@@ -194,6 +194,75 @@ fi
 rm -f "$KILLSWITCH_OUT" "$KILLSWITCH_ERR"
 
 # ============================================================================
+# Mandatory test cases (issue-10 §3, 6 per plugin)
+# ============================================================================
+
+# 1. Edit with replace_all: true against multiply-occurring old_string.
+DUP_BODY="$(printf '%s' "$VALID_BODY" | sed 's/^existing-controls:.*/existing-controls: PLACEHOLDER control text, see PLACEHOLDER runbook/')"
+DUP_ABS="$WORKDIR/docs/issue-7/reports/risk-management.md"
+mkdir -p "$(dirname "$DUP_ABS")"
+printf '%s' "$DUP_BODY" > "$DUP_ABS"
+REPLACE_ALL_PAYLOAD=$(python3 - "$DUP_ABS" <<'PYEOF'
+import json, sys
+print(json.dumps({"tool_name": "Edit", "tool_input": {
+  "file_path": sys.argv[1], "old_string": "PLACEHOLDER", "new_string": "failover", "replace_all": True
+}}))
+PYEOF
+)
+run_case "replace_all true replaces every occurrence" "allow" "$REPLACE_ALL_PAYLOAD"
+
+# 2. MultiEdit with mixed replace_all true/false edits.
+MULTI_BODY="$(printf '%s' "$VALID_BODY" | sed 's/^mitigation-plan:.*/mitigation-plan: AAA BBB plan/')"
+MULTI_ABS="$WORKDIR/docs/issue-7/reports/risk-management-multi.md"
+printf '%s' "$MULTI_BODY" > "$MULTI_ABS"
+MULTI_PAYLOAD=$(python3 - "$MULTI_ABS" <<'PYEOF'
+import json, sys
+print(json.dumps({"tool_name": "MultiEdit", "tool_input": {
+  "file_path": sys.argv[1],
+  "edits": [
+    {"old_string": "AAA", "new_string": "XXX", "replace_all": True},
+    {"old_string": "BBB", "new_string": "YYY", "replace_all": False},
+  ],
+}}))
+PYEOF
+)
+run_case "MultiEdit honors each edit's own replace_all flag" "allow" "$MULTI_PAYLOAD"
+
+# 3. Malformed JSON: truncated, non-object top level, empty payload -> deny not crash.
+run_case "deny: truncated JSON" "deny" '{"tool_name": "Write"'
+run_case "deny: non-object top-level JSON" "deny" '["not", "an", "object"]' "not a JSON object"
+run_case "deny: empty payload" "deny" '' "empty tool-use payload"
+
+# 4. Kill switch set to an unrecognized/typo value -> gate stays ACTIVE.
+KS_TYPO_OUT="$(mktemp)"; KS_TYPO_ERR="$(mktemp)"
+printf '%s' "$(write_payload "docs/issue-7/proposals/risk-management-test.md" "garbage, no fields")" | \
+  RISK_REGISTER_METHODOLOGY_GATE_OFF=onn "$GATE" >"$KS_TYPO_OUT" 2>"$KS_TYPO_ERR"
+KS_TYPO_EC=$?
+if [ "$KS_TYPO_EC" -eq 2 ]; then
+  echo "PASS: deny: kill switch unrecognized value keeps gate active"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: deny: kill switch unrecognized value keeps gate active (exit=$KS_TYPO_EC)"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$KS_TYPO_OUT" "$KS_TYPO_ERR"
+
+# 5. Absolute file_path (already used above) matching the same scope a
+#    relative-path fixture also matches, plus a ./-prefixed variant.
+run_case "allow: absolute file_path normalizes to in-scope" "allow" \
+  "$(write_payload "docs/issue-7/proposals/risk-management-abs.md" "$VALID_BODY")"
+run_case "allow: relative file_path normalizes to in-scope" "allow" \
+  "$(printf '{"tool_name":"Write","tool_input":{"file_path":"docs/issue-7/proposals/risk-management-rel.md","content":%s}}' "$(printf '%s' "$VALID_BODY" | json_escape)")"
+run_case "allow: ./-prefixed file_path normalizes to in-scope" "allow" \
+  "$(printf '{"tool_name":"Write","tool_input":{"file_path":"./docs/issue-7/proposals/risk-management-dot.md","content":%s}}' "$(printf '%s' "$VALID_BODY" | json_escape)")"
+
+# 6. Internal-judge-crash simulation: JSON-valid input the business logic
+#    mishandles, forcing an uncaught exception -> deny with a crash reason.
+run_case "deny: internal judge crash fails closed" "deny" \
+  "$(write_payload "docs/issue-7/proposals/risk-management-crash.md" "__FORCE_INTERNAL_CRASH__")" \
+  "crashed"
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

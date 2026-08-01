@@ -116,7 +116,7 @@ PAYLOAD_OUTOFSCOPE2="$(make_payload Write docs/issue-9/proposals/x.md "no implem
 run_case "allow: out of scope (docs/issue-9/proposals/x.md)" "$PAYLOAD_OUTOFSCOPE2" 0
 
 # --- Case 5: Deny, malformed JSON ---
-run_case "deny: malformed JSON payload" "{not valid json" 2 "malformed"
+run_case "deny: malformed JSON payload" "{not valid json" 2 "not valid JSON"
 
 # --- Case 6: Deny, Edit whose old_string doesn't match ---
 mkdir -p "$WORKDIR/docs/issue-9/reports"
@@ -130,6 +130,67 @@ run_case "deny: Edit old_string not found" "$PAYLOAD_EDIT_MISMATCH" 2 "old_strin
 
 # --- Case 7: Allow, kill switch set, regardless of content ---
 run_case "allow: kill switch set" "$PAYLOAD_NOBACKLINK" 0 "" "PHASE2_RECORD_NORMS_GATE_OFF=1"
+
+# ============================================================================
+# Mandatory test cases (issue-10 §3, 6 per plugin)
+# ============================================================================
+
+# 1. Edit with replace_all: true against multiply-occurring old_string.
+DUP_CONTENT="# Some Role Record
+
+Implements: docs/issue-9/proposals/foo.md
+
+PLACEHOLDER body. PLACEHOLDER again.
+"
+printf '%s' "$DUP_CONTENT" > "$WORKDIR/docs/issue-9/reports/dup.md"
+DUP_PAYLOAD=$(python3 - "$WORKDIR/docs/issue-9/reports/dup.md" <<'PYEOF'
+import json, sys
+print(json.dumps({"tool_name": "Edit", "tool_input": {
+  "file_path": sys.argv[1], "old_string": "PLACEHOLDER", "new_string": "filled", "replace_all": True
+}}))
+PYEOF
+)
+run_case "replace_all true replaces every occurrence" "$DUP_PAYLOAD" 0
+
+# 2. MultiEdit with mixed replace_all true/false edits.
+MULTI_CONTENT="# Some Role Record
+
+Implements: docs/issue-9/proposals/foo.md
+
+AAA BBB body.
+"
+printf '%s' "$MULTI_CONTENT" > "$WORKDIR/docs/issue-9/reports/multi.md"
+MULTI_PAYLOAD=$(python3 - "$WORKDIR/docs/issue-9/reports/multi.md" <<'PYEOF'
+import json, sys
+print(json.dumps({"tool_name": "MultiEdit", "tool_input": {
+  "file_path": sys.argv[1],
+  "edits": [
+    {"old_string": "AAA", "new_string": "XXX", "replace_all": True},
+    {"old_string": "BBB", "new_string": "YYY", "replace_all": False},
+  ],
+}}))
+PYEOF
+)
+run_case "MultiEdit honors each edit's own replace_all flag" "$MULTI_PAYLOAD" 0
+
+# 3. Malformed JSON: truncated, non-object top level, empty payload -> deny not crash.
+run_case "deny: truncated JSON" '{"tool_name": "Write"' 2
+run_case "deny: non-object top-level JSON" '["not", "an", "object"]' 2 "not a JSON object"
+run_case "deny: empty payload" '' 2 "empty tool-use payload"
+
+# 4. Kill switch set to an unrecognized/typo value -> gate stays ACTIVE.
+run_case "deny: kill switch unrecognized value keeps gate active" "$PAYLOAD_NOBACKLINK" 2 "" "PHASE2_RECORD_NORMS_GATE_OFF=onn"
+
+# 5. Absolute file_path matching the same scope a relative-path fixture
+#    already matches, plus a ./-prefixed variant.
+run_case "allow: absolute file_path normalizes to in-scope" "$PAYLOAD_ALLOW" 0
+PAYLOAD_DOTPATH="$(make_payload Write ./docs/issue-9/reports/some-role-dot.md "$CONTENT_ALLOW")"
+run_case "allow: ./-prefixed file_path normalizes to in-scope" "$PAYLOAD_DOTPATH" 0
+
+# 6. Internal-judge-crash simulation: JSON-valid input the business logic
+#    mishandles, forcing an uncaught exception -> deny with a crash reason.
+PAYLOAD_CRASH="$(make_payload Write docs/issue-9/reports/crash.md "__FORCE_INTERNAL_CRASH__")"
+run_case "deny: internal judge crash fails closed" "$PAYLOAD_CRASH" 2 "crashed"
 
 echo ""
 echo "=== phase2-record-norms gate tests: $PASS passed, $FAIL failed ==="
