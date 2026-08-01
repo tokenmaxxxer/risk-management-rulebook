@@ -7,59 +7,29 @@
 # criteria, per docs/issue-7/proposals/risk-management-plugin-enforcement.md
 # §1.2 and §2.2.
 #
-# Structural skeleton (fail-closed trap, dependency + root-discovery checks,
-# scope regex, resulting-content reconstruction, kill switch) is adapted BY
-# PATH ONLY — no script body copied — from:
-#   pricing-rulebook/pricing/hooks/methodology-gate.sh
-#   implementation-rulebook/coding/hooks/coding-progress-gate.sh
-# (neither file is present in this repo checkout; citation convention per
-# docs/issue-2/proposals/core-canon-reference-conversion.md).
+# Canon migration (issue-10 §1): sources core's gate-house standard
+# library instead of hand-rolling the trap/kill-switch/deny/parse/
+# reconstruct machinery.
 #
 # Kill switch: RISK_REGISTER_METHODOLOGY_GATE_OFF=1
+. "${CORE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT/../core}/hooks/lib/gate-lib.sh"
+gate_trap_fail_closed
+set -uo pipefail
 
-set -u
+gate_kill_switch_active "${RISK_REGISTER_METHODOLOGY_GATE_OFF:-}" || { trap - EXIT; exit 0; }
 
-__fc() {
-  local ec=$?
-  if [ "$ec" -ne 0 ] && [ "$ec" -ne 2 ]; then
-    echo "register-fields-gate: fail-closed on unexpected exit ($ec)" >&2
-    exit 2
-  fi
-  exit "$ec"
-}
-trap __fc EXIT
+command -v python3 >/dev/null 2>&1 || gate_deny "register-fields-gate" "python3 not found, failing closed"
+command -v git >/dev/null 2>&1 || gate_deny "register-fields-gate" "git not found, failing closed"
 
-# --- kill switch, checked first -------------------------------------------
-if [ "${RISK_REGISTER_METHODOLOGY_GATE_OFF:-0}" = "1" ]; then
-  exit 0
-fi
-
-# --- dependency checks ------------------------------------------------------
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "register-fields-gate: python3 not found, failing closed" >&2
-  exit 2
-fi
-if ! command -v git >/dev/null 2>&1; then
-  echo "register-fields-gate: git not found, failing closed" >&2
-  exit 2
-fi
-
-# --- project root discovery -------------------------------------------------
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$PROJECT_ROOT" ]; then
   PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 fi
 if [ -z "$PROJECT_ROOT" ] || [ ! -d "$PROJECT_ROOT" ]; then
-  echo "register-fields-gate: could not determine project root, failing closed" >&2
-  exit 2
+  gate_deny "register-fields-gate" "could not determine project root, failing closed"
 fi
 
-# --- read PreToolUse payload from stdin -------------------------------------
-PAYLOAD="$(cat)"
-if [ -z "$PAYLOAD" ]; then
-  echo "register-fields-gate: empty payload, failing closed" >&2
-  exit 2
-fi
+PAYLOAD="$(cat 2>/dev/null || true)"
 
 # NOTE: the JSON payload is piped via stdin into the python3 process below.
 # The gate logic itself is passed as a -c script argument (not a heredoc
@@ -68,24 +38,25 @@ fi
 # `python3 <<EOF` would make python3 read its *program source* from stdin,
 # leaving nothing for `sys.stdin.read()` inside the program to consume.
 GATE_PY="$(cat <<'PYEOF'
-import json
-import os
-import re
-import sys
+import importlib.util, json, os, re, sys
+
+_spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
+gate_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gate_lib)
+
 
 def deny(reason):
     print("DENY::" + reason)
     sys.exit(0)
 
+
 def allow(reason):
     print("ALLOW::" + reason)
     sys.exit(0)
 
+
 raw = sys.stdin.read()
-try:
-    payload = json.loads(raw)
-except Exception as e:
-    deny("malformed JSON payload: %s" % e)
+payload = gate_lib.gate_parse_json_or_deny(raw, deny)
 
 tool_name = payload.get("tool_name", "")
 tool_input = payload.get("tool_input", {}) or {}
@@ -95,61 +66,97 @@ if not file_path:
     deny("no file_path in tool_input")
 
 project_root = os.environ.get("PROJECT_ROOT", "")
-rel_path = file_path
-if project_root and file_path.startswith(project_root):
-    rel_path = os.path.relpath(file_path, project_root)
-rel_path = rel_path.lstrip("./")
+rel_path = gate_lib.gate_normalize_path(project_root, file_path)
 
 SCOPE_RE = re.compile(
     r"^docs/issue-[0-9]+/(proposals/.*risk-management.*|reports/risk-management)\.md$"
 )
-if not SCOPE_RE.match(rel_path):
+if rel_path is None or not SCOPE_RE.match(rel_path):
     allow("out of scope: %s" % rel_path)
 
-# --- reconstruct resulting content ------------------------------------------
-def read_existing(path):
+abs_path = file_path if os.path.isabs(file_path) else os.path.join(project_root, file_path)
+
+current = None
+if os.path.isfile(abs_path):
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
+        with open(abs_path, "r", encoding="utf-8") as f:
+            current = f.read()
+    except OSError:
+        deny("%s exists but cannot be read, failing closed" % rel_path)
 
-if tool_name == "Write":
-    content = tool_input.get("content")
-    if content is None:
-        deny("Write tool_input missing content, cannot reconstruct")
-
-elif tool_name == "Edit":
-    existing = read_existing(file_path)
-    old_string = tool_input.get("old_string")
-    new_string = tool_input.get("new_string")
-    if existing is None:
-        deny("could not read existing file for Edit reconstruction: %s" % rel_path)
-    if old_string is None or new_string is None:
-        deny("Edit tool_input missing old_string/new_string")
-    if old_string not in existing:
-        deny("Edit old_string not found in existing file, cannot reconstruct")
-    content = existing.replace(old_string, new_string, 1)
-
-elif tool_name == "MultiEdit":
-    existing = read_existing(file_path)
-    if existing is None:
-        deny("could not read existing file for MultiEdit reconstruction: %s" % rel_path)
-    edits = tool_input.get("edits", [])
-    content = existing
-    for i, e in enumerate(edits):
-        old_string = e.get("old_string")
-        new_string = e.get("new_string")
-        if old_string is None or new_string is None:
-            deny("MultiEdit edit #%d missing old_string/new_string" % i)
-        if old_string not in content:
-            deny("MultiEdit edit #%d old_string not found, cannot reconstruct" % i)
-        content = content.replace(old_string, new_string, 1)
-
-else:
+if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
     deny("unsupported tool_name for reconstruction: %s" % tool_name)
 
-# --- business logic: 12-field schema, per-field judgment criteria ----------
+content, ok = gate_lib.gate_reconstruct_write(tool_name, tool_input, current)
+if not ok or content is None:
+    deny(
+        "old_string not found (or the tool input's shape makes the resulting "
+        "content undeterminable, tool=%r)" % tool_name
+    )
+
+# --- issue-10 §2: section/adjacency/structure-aware semantic check --------
+
+def strip_fences_and_quotes(text):
+    lines = text.splitlines()
+    out = []
+    in_fence = False
+    for l in lines:
+        if re.match(r'^\s*(```|~~~)', l):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        if in_fence:
+            out.append("")
+            continue
+        if re.match(r'^\s*>', l):
+            out.append("")
+            continue
+        out.append(l)
+    return out
+
+
+def parse_sections(lines):
+    heading_idx = [i for i, l in enumerate(lines) if re.match(r'^(#{1,6})\s+\S', l)]
+    sections = []
+    for pos, i in enumerate(heading_idx):
+        m = re.match(r'^(#{1,6})\s+(.*)$', lines[i])
+        level = len(m.group(1))
+        text = m.group(2).strip()
+        end = len(lines)
+        for j in heading_idx[pos + 1:]:
+            m2 = re.match(r'^(#{1,6})\s+(.*)$', lines[j])
+            if len(m2.group(1)) <= level:
+                end = j
+                break
+        sections.append({"level": level, "text": text, "start": i, "end": end})
+    return sections
+
+
+def norm(s):
+    return re.sub(r'\s+', ' ', s.strip()).lower()
+
+
+lines = strip_fences_and_quotes(content)
+sections = parse_sections(lines)
+
+# Trigger-only special case (mandatory test 6): a document that forces an
+# uncaught exception in the business logic below, exercising the §1.1
+# subprocess-rc-check regression test.
+if content.strip() == "__FORCE_INTERNAL_CRASH__":
+    raise RuntimeError("forced internal crash for regression test 6")
+
+# The register-entry section this schema's 12 fields must all live inside
+# (not merely anywhere in the document): the section headed "register
+# entry" (case-insensitive), falling back to the whole document (still
+# fence/quote-stripped) when no such heading exists, so a bare register
+# body with no wrapping heading (a valid, minimal shape) still works.
+entry_section_lines = lines
+for sec in sections:
+    if "register entry" in norm(sec["text"]) or "register-entry" in norm(sec["text"]):
+        entry_section_lines = lines[sec["start"]:sec["end"]]
+        break
+entry_text = "\n".join(entry_section_lines)
+
 REQUIRED_FIELDS = [
     "risk-id",
     "risk-description",
@@ -165,8 +172,8 @@ REQUIRED_FIELDS = [
     "review-date",
 ]
 
+
 def field_value(field, text):
-    # label pattern: "field-name: value" or "field-name:value" at start of a line
     pattern = re.compile(
         r"^[ \t]*" + re.escape(field) + r"[ \t]*:[ \t]*(.*)$", re.MULTILINE
     )
@@ -175,14 +182,14 @@ def field_value(field, text):
         return None
     return m.group(1).strip()
 
+
 for field in REQUIRED_FIELDS:
-    if field_value(field, content) is None:
+    if field_value(field, entry_text) is None:
         deny("missing required field: %s" % field)
 
 ALLOWED_CATEGORIES = {"strategic", "operational", "financial", "regulatory"}
-category_value = field_value("risk-category", content) or ""
+category_value = field_value("risk-category", entry_text) or ""
 category_lower = category_value.strip().lower()
-# justification convention: value followed by "(justified: ...)" anywhere in the line
 has_justification = "(justified:" in category_lower
 bare_category = re.split(r"\(justified:", category_lower, maxsplit=1)[0].strip()
 if bare_category not in ALLOWED_CATEGORIES and not has_justification:
@@ -194,7 +201,7 @@ if bare_category not in ALLOWED_CATEGORIES and not has_justification:
 
 PLACEHOLDER_TOKENS = {"", "tbd", "unassigned", "n/a"}
 for field in ("mitigation-owner", "review-date"):
-    value = field_value(field, content) or ""
+    value = field_value(field, entry_text) or ""
     if value.strip().lower() in PLACEHOLDER_TOKENS:
         deny("placeholder value not allowed for %s: '%s'" % (field, value))
 
@@ -202,11 +209,13 @@ allow("all 12 fields present with valid values")
 PYEOF
 )"
 
-RESULT="$(printf '%s' "$PAYLOAD" | PROJECT_ROOT="$PROJECT_ROOT" python3 -c "$GATE_PY")"
+if ! RESULT="$(printf '%s' "$PAYLOAD" | PROJECT_ROOT="$PROJECT_ROOT" GATE_LIB_PY="$GATE_LIB_PY" python3 -c "$GATE_PY")"; then
+  rc=$?
+  gate_deny "register-fields-gate" "internal judge crashed (rc=$rc) — failing closed"
+fi
 
 if [ -z "$RESULT" ]; then
-  echo "register-fields-gate: gate produced no result, failing closed" >&2
-  exit 2
+  gate_deny "register-fields-gate" "gate produced no result, failing closed"
 fi
 
 DECISION="${RESULT%%::*}"
@@ -214,14 +223,12 @@ REASON="${RESULT#*::}"
 
 case "$DECISION" in
   ALLOW)
-    exit 0
+    gate_allow
     ;;
   DENY)
-    echo "register-fields-gate: DENY: $REASON" >&2
-    exit 2
+    gate_deny "register-fields-gate" "$REASON"
     ;;
   *)
-    echo "register-fields-gate: unrecognized gate result, failing closed: $RESULT" >&2
-    exit 2
+    gate_deny "register-fields-gate" "unrecognized gate result, failing closed: $RESULT"
     ;;
 esac
