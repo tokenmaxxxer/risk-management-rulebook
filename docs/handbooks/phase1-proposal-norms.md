@@ -57,3 +57,17 @@ its directive fragment's prose names no role beyond one illustrative
 example. Any role's `hooks/directive.sh` can source and concatenate
 this plugin's fragment into its own phase-1 `--produces` string,
 exactly as `risk-management` does per the parent proposal's §0.4.
+
+## Gate A+ final closure (issue-13)
+
+Per `docs/issue-13/proposals/risk-management-gate-a-plus-final-closure.md`
+(approved): `hooks/proposal-shape-gate.sh` now sources `gate-lib.sh` via
+the canon idiom (`CLAUDE_PLUGIN_ROOT_CORE` first, relative fallback
+second, `|| exit 2` fail-closed on the source line). `hooks.json`'s
+matcher gained `NotebookEdit` for matcher/code parity with the gate's
+existing `gate_reconstruct_write` handling. `hooks/tests/run-gate-tests.sh`
+gained two new cases: a missing-`CLAUDE_PLUGIN_ROOT_CORE` deny-2 case
+(dynamic proof of the fail-closed guard), and an Edit-reconstruction
+case where an Edit whose old/new string pair strips the required
+"Phase 1 proposal" status line is denied — closing the previously-absent
+Edit-deny-on-shape-failure coverage this plugin's suite lacked.

@@ -262,6 +262,22 @@ run_case "deny: internal judge crash fails closed" "deny" \
   "$(write_payload "docs/issue-7/proposals/risk-management-crash.md" "__FORCE_INTERNAL_CRASH__")" \
   "crashed"
 
+# 7. CLAUDE_PLUGIN_ROOT_CORE points at a nonexistent directory -> the
+#    gate-lib.sh source fails and the gate must fail closed (exit 2),
+#    per issue-13 item 1's `||` guard.
+CORE_MISSING_OUT="$(mktemp)"; CORE_MISSING_ERR="$(mktemp)"
+printf '%s' "$(write_payload "docs/issue-7/proposals/risk-management-test.md" "$VALID_BODY")" | \
+  CLAUDE_PLUGIN_ROOT_CORE="/nonexistent-core-$$" "$GATE" >"$CORE_MISSING_OUT" 2>"$CORE_MISSING_ERR"
+CORE_MISSING_EC=$?
+if [ "$CORE_MISSING_EC" -eq 2 ]; then
+  echo "PASS: deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed (exit=$CORE_MISSING_EC)"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$CORE_MISSING_OUT" "$CORE_MISSING_ERR"
+
 # ============================================================================
 # Summary
 # ============================================================================

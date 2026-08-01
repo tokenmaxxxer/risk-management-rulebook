@@ -54,3 +54,14 @@ It composes into `risk-management`'s phase-2 norm today (per proposal
 way, via directive-fragment concatenation and independent
 `PreToolUse` hook registration — the same composition mechanism
 `core`'s own `freelunch`/`scout` plugins already use.
+
+## Gate A+ final closure (issue-13)
+
+Per `docs/issue-13/proposals/risk-management-gate-a-plus-final-closure.md`
+(approved): `hooks/record-shape-gate.sh` now sources `gate-lib.sh` via
+the canon idiom (`CLAUDE_PLUGIN_ROOT_CORE` first, relative fallback
+second, `|| exit 2` fail-closed on the source line). `hooks.json`'s
+matcher gained `NotebookEdit` for matcher/code parity with the gate's
+existing `gate_reconstruct_write` handling. `hooks/tests/run-gate-tests.sh`
+gained a case asserting exit 2 when `CLAUDE_PLUGIN_ROOT_CORE` points at
+a nonexistent path, proving the fail-closed guard dynamically.

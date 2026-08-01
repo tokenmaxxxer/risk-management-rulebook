@@ -190,6 +190,33 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# 7. CLAUDE_PLUGIN_ROOT_CORE points at a nonexistent directory -> the
+#    gate-lib.sh source fails and the gate must fail closed (exit 2),
+#    per issue-13 item 1's `||` guard.
+payload="$(make_payload 'Write' 'docs/issue-9/proposals/foo.md' "$GOOD_CONTENT")"
+out="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT_CORE="/nonexistent-core-$$" bash "$GATE" 2>&1)"
+ec=$?
+if [ "$ec" = 2 ]; then
+  echo "PASS: deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed"
+  PASS=$((PASS+1))
+else
+  echo "FAIL: deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed (exit=$ec; output: $out)"
+  FAIL=$((FAIL+1))
+fi
+
+# 8. Edit reconstruction that removes the "Status: Phase 1 proposal" line
+#    from an initially-compliant proposal must be denied (issue-13 §3b).
+printf '%s' "$GOOD_CONTENT" > docs/issue-9/proposals/edit-shape-removal.md
+payload="$(python3 -c "
+import json
+print(json.dumps({'tool_name': 'Edit', 'tool_input': {
+  'file_path': 'docs/issue-9/proposals/edit-shape-removal.md',
+  'old_string': 'Status: Phase 1 proposal — APPROVE is out of scope for this PR.\n\n',
+  'new_string': ''
+}}))
+")"
+run_case "deny: Edit reconstruction removing phase-gate statement" "$payload" 2
+
 echo ""
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -ne 0 ]; then

@@ -77,3 +77,14 @@ plugin inventing a scale no other canon source mandates. If a future issue
 establishes a repo-wide risk-scoring scale, this gate's checks (currently
 presence-and-value-category only, no value-range validation) would need
 revisiting to adopt or explicitly decline it.
+
+## Gate A+ final closure (issue-13)
+
+Per `docs/issue-13/proposals/risk-management-gate-a-plus-final-closure.md`
+(approved): `hooks/register-fields-gate.sh` now sources `gate-lib.sh` via
+the canon idiom (`CLAUDE_PLUGIN_ROOT_CORE` first, relative fallback
+second, `|| exit 2` fail-closed on the source line). `hooks.json`'s
+matcher gained `NotebookEdit` for matcher/code parity with the gate's
+existing `gate_reconstruct_write` handling. `hooks/tests/run-gate-tests.sh`
+gained a case asserting exit 2 when `CLAUDE_PLUGIN_ROOT_CORE` points at
+a nonexistent path, proving the fail-closed guard dynamically.
