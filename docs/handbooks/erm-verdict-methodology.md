@@ -90,3 +90,19 @@ script and the human/session author are working from the same
 contract — the gate cannot judge whether an objective is well-chosen or
 a mitigation plan is sound, only that the required stages exist, in
 the right section, in order, with inherent and residual kept distinct.
+
+## Gate A+ final closure (issue-13)
+
+Per `docs/issue-13/proposals/risk-management-gate-a-plus-final-closure.md`
+(approved): `hooks/erm-order-gate.sh` now sources `gate-lib.sh` via the
+canon idiom — `${CLAUDE_PLUGIN_ROOT_CORE:-...}` first, a same-repo
+relative fallback second, and a `|| exit 2` fail-closed guard on the
+source line itself, so a missing/broken core checkout denies rather than
+silently falling through. `hooks.json`'s matcher now includes
+`NotebookEdit` alongside `Write|Edit|MultiEdit`, matching the
+`gate_reconstruct_write` code path the gate script already exercised for
+that tool but that the matcher previously never routed to.
+`hooks/tests/run-gate-tests.sh` adds a case asserting exit 2 when
+`CLAUDE_PLUGIN_ROOT_CORE` points at a nonexistent path, proving the
+source-guard fails closed dynamically rather than only by static
+`compliance-check.sh` inspection.

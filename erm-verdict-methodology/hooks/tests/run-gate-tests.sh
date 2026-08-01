@@ -276,6 +276,12 @@ run_case "allow: ./-prefixed file_path normalizes to in-scope" 0 "" "$p"
 p="$(mktemp)"; make_payload "Write" "$TARGET" "__FORCE_INTERNAL_CRASH__" > "$p"
 run_case "deny: internal judge crash fails closed" 2 "crashed" "$p"
 
+# 7. CLAUDE_PLUGIN_ROOT_CORE points at a nonexistent directory -> the
+#    gate-lib.sh source fails and the gate must fail closed (exit 2),
+#    per issue-13 item 1's `||` guard (docs/issue-13 proposal §1, §3a).
+p="$(mktemp)"; make_payload "Write" "$TARGET" "$FULL_DOC" > "$p"
+run_case "deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed" 2 "" "$p" "CLAUDE_PLUGIN_ROOT_CORE=/nonexistent-core-$$"
+
 rm -rf "$REPO"
 
 echo ""

@@ -192,6 +192,11 @@ run_case "allow: ./-prefixed file_path normalizes to in-scope" "$PAYLOAD_DOTPATH
 PAYLOAD_CRASH="$(make_payload Write docs/issue-9/reports/crash.md "__FORCE_INTERNAL_CRASH__")"
 run_case "deny: internal judge crash fails closed" "$PAYLOAD_CRASH" 2 "crashed"
 
+# 7. CLAUDE_PLUGIN_ROOT_CORE points at a nonexistent directory -> the
+#    gate-lib.sh source fails and the gate must fail closed (exit 2),
+#    per issue-13 item 1's `||` guard.
+run_case "deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed" "$PAYLOAD_ALLOW" 2 "" "CLAUDE_PLUGIN_ROOT_CORE=/nonexistent-core-$$"
+
 echo ""
 echo "=== phase2-record-norms gate tests: $PASS passed, $FAIL failed ==="
 
