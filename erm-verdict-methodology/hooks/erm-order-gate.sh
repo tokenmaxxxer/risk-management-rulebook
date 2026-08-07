@@ -24,15 +24,17 @@ fi
 
 payload="$(cat 2>/dev/null || true)"
 
-# The python source is written to a temp file first (rather than fed via a
-# heredoc directly on the python3 invocation) because a heredoc attached to
-# a command consumes that command's stdin, which would otherwise clobber
-# the piped-in $payload before python ever sees it.
-PYSCRIPT="$(mktemp)"
-cat > "$PYSCRIPT" <<'PYEOF'
+# The payload and project root are handed to the judge via env vars rather
+# than piped on stdin, because a heredoc attached to the python3 invocation
+# itself consumes that command's stdin -- routing the payload through the
+# environment instead avoids that collision without needing a scratch file.
+export GATE_PAYLOAD="$payload"
+export GATE_PROJECT_DIR="$PROJECT_DIR"
+
+if ! result="$(python3 <<'PYEOF'
 import importlib.util, json, os, re, sys
 
-project_dir = sys.argv[1]
+project_dir = os.environ["GATE_PROJECT_DIR"]
 
 _spec = importlib.util.spec_from_file_location("gate_lib", os.environ["GATE_LIB_PY"])
 gate_lib = importlib.util.module_from_spec(_spec)
@@ -44,7 +46,7 @@ def deny(msg):
     sys.exit(0)
 
 
-raw = sys.stdin.read()
+raw = os.environ["GATE_PAYLOAD"]
 event = gate_lib.gate_parse_json_or_deny(raw, deny)
 
 tool_name = event.get("tool_name", "")
@@ -184,13 +186,10 @@ if inherent.group(1).strip() == residual.group(1).strip():
 
 print("ALLOW::ok")
 PYEOF
-
-if ! result="$(printf '%s' "$payload" | python3 "$PYSCRIPT" "$PROJECT_DIR")"; then
+)"; then
   rc=$?
-  rm -f "$PYSCRIPT"
   gate_deny "erm-order-gate" "internal judge crashed (rc=$rc) — failing closed"
 fi
-rm -f "$PYSCRIPT"
 
 verdict="${result%%::*}"
 reason="${result#*::}"

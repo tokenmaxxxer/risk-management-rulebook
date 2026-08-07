@@ -282,6 +282,30 @@ run_case "deny: internal judge crash fails closed" 2 "crashed" "$p"
 p="$(mktemp)"; make_payload "Write" "$TARGET" "$FULL_DOC" > "$p"
 run_case "deny: missing CLAUDE_PLUGIN_ROOT_CORE fails closed" 2 "" "$p" "CLAUDE_PLUGIN_ROOT_CORE=/nonexistent-core-$$"
 
+# 8. mktemp-shadow regression (issue-16, product-discovery-rulebook#54
+#    style): shadow mktemp on PATH with an always-failing marker binary
+#    scoped to the gate subprocess. The fixed gate never invokes mktemp,
+#    so it must still ALLOW a valid payload and the marker file must never
+#    be created.
+MKTEMP_SHADOW_DIR="$(mktemp -d)"
+MKTEMP_MARKER="$MKTEMP_SHADOW_DIR/mktemp-was-called"
+cat > "$MKTEMP_SHADOW_DIR/mktemp" <<SHADOWEOF
+#!/usr/bin/env bash
+touch "$MKTEMP_MARKER"
+exit 1
+SHADOWEOF
+chmod +x "$MKTEMP_SHADOW_DIR/mktemp"
+p="$(mktemp)"; make_payload "Write" "$TARGET" "$FULL_DOC" > "$p"
+run_case "allow: gate survives mktemp shadowed with always-failing marker" 0 "" "$p" "PATH=$MKTEMP_SHADOW_DIR:$PATH"
+if [ -f "$MKTEMP_MARKER" ]; then
+  echo "FAIL: mktemp shadow marker was created — gate still invokes mktemp"
+  FAIL=$((FAIL+1))
+else
+  echo "PASS: mktemp shadow marker never created — gate does not invoke mktemp"
+  PASS=$((PASS+1))
+fi
+rm -rf "$MKTEMP_SHADOW_DIR"
+
 rm -rf "$REPO"
 
 echo ""
