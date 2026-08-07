@@ -106,3 +106,28 @@ that tool but that the matcher previously never routed to.
 `CLAUDE_PLUGIN_ROOT_CORE` points at a nonexistent path, proving the
 source-guard fails closed dynamically rather than only by static
 `compliance-check.sh` inspection.
+
+## No scratch file: env-var handoff instead of mktemp (issue-16)
+
+Per `docs/issue-16/proposals/erm-order-gate-mktemp-fix.md` (approved),
+`hooks/erm-order-gate.sh` no longer writes its embedded Python judge to
+a `mktemp` scratch file before running it. Under a sandboxed session
+where the platform tmp dir sits outside the writable set, that write
+was denied and the gate's fail-closed trap denied every erm-verdict
+write regardless of content — the same bug class
+product-discovery-rulebook#54 fixed for its own gate.
+
+The fix follows that same house pattern: the JSON payload and resolved
+project root are exported as `GATE_PAYLOAD` / `GATE_PROJECT_DIR` env
+vars, and the Python source is piped straight into `python3` via a
+`<<'PYEOF' ... PYEOF` heredoc on the invocation's own stdin — no
+scratch file is created or cleaned up. The judge reads
+`os.environ["GATE_PROJECT_DIR"]` and `os.environ["GATE_PAYLOAD"]` in
+place of `sys.argv[1]` and `sys.stdin.read()`; routing the payload
+through the environment instead of stdin is what frees stdin for the
+heredoc, avoiding the collision the previous scratch-file workaround
+existed to route around. `hooks/tests/run-gate-tests.sh` adds a
+regression case that shadows `mktemp` on `PATH` with an
+always-failing marker binary scoped to the gate subprocess, asserting
+both that the gate still ALLOWs a valid payload and that the marker
+file the shadow binary would touch is never created.
