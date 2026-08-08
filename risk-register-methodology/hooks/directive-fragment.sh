@@ -44,5 +44,24 @@ Enforced by `hooks/register-fields-gate.sh` (kill switch:
 `RISK_REGISTER_METHODOLOGY_GATE_OFF=1`). See
 `docs/handbooks/risk-register-methodology.md` (repo root) for full
 reasoning.
+
+#### Spec field mapping (`roles/specs/risk-management.spec.json`, issue #20)
+
+The realized marketplace spec's six required deliverable fields map onto
+this schema's fields as follows: `risk_id`↔`risk-id`,
+`description`↔`risk-description`, `likelihood`↔`likelihood`,
+`impact`↔`impact`, `treatment`↔`mitigation-plan`, `owner`↔`mitigation-owner`.
+`risk_id`/`owner` reference-resolution is checked elsewhere
+(`on-the-record/hooks/role-spec-reference-guard.sh`), not by this
+plugin's gate; the treatment/owner recomputation-before-terminal rule is
+the spec's own stated `TBD` follow-up, not enforced here.
+
+`low`/`medium`/`high` values for `likelihood`/`impact` satisfy both this
+rulebook's existing free-text gate and the spec's stricter `enum` typing
+(a subset relationship, not a conflict); other qualitative or numeric
+values remain valid under this rulebook's own gate but would not satisfy
+the spec's typing — this tension is stated explicitly rather than
+silently resolved, per issue #20's "no canon-wide scale" prior decision
+(`docs/handbooks/risk-register-methodology.md`).
 EOF
 }

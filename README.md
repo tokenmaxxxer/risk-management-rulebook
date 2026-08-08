@@ -82,6 +82,35 @@ Out of scope: quantitative/actuarial modeling (VaR, Monte Carlo) and
 heat-map visualization tooling — see the proposal's rationale section for
 why.
 
+#### Spec field mapping (issue #20)
+
+The realized marketplace `roles/specs/risk-management.spec.json`'s six
+required deliverable fields map onto this schema:
+`risk_id`↔`risk-id`, `description`↔`risk-description`,
+`likelihood`↔`likelihood`, `impact`↔`impact`,
+`treatment`↔`mitigation-plan`, `owner`↔`mitigation-owner`. `low`/`medium`/
+`high` values for `likelihood`/`impact` satisfy both this rulebook's
+free-text gate and the spec's stricter `enum` typing; other qualitative
+or numeric values remain valid here but would not satisfy the spec's
+typing. See `docs/issue-20/proposals/implementation.md` for full
+reasoning.
+
+#### `loop_state` vocabulary (issue #20)
+
+Pinning `loop_state` to the spec's five-state set (`landed`,
+`registering`, `risk-unreachable`, `treating`, `treatment-undeclared`)
+via a repo-local `docs/specs/record-fields-terminal-states.json` was
+attempted and reverted: core's `record-fields-gate.sh` accepts only its
+own fixed contract §2 kind list (`coding-record`, `feasibility-record`,
+`ops-record`, `product-record`, `qa-record`, `reflect-record`,
+`review-record`, `ux-design-record`, `verify-record`) as override keys
+and denies **every** record write in the repo — not just
+risk-management's — the moment the file contains an unrecognized kind
+key such as `risk-management`. This rulebook's role does not map to any
+of those kinds, so the override file cannot express this vocabulary
+without breaking record-writing repo-wide; see
+`docs/issue-20/reports/implementation.md` for the reproduction.
+
 ## Install
 
 ```
