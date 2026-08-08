@@ -43,7 +43,9 @@ An `erm-verdict` document must show its work as a five-stage process
    Judgment criterion: the response tier must be consistent with the
    residual-vs-appetite comparison — a judgment call for the author,
    since the automated gate checks only presence and ordering, not
-   tier-consistency.
+   tier-consistency. The realized marketplace spec's `treatment` field
+   (`roles/specs/risk-management.spec.json`, issue #20) maps onto this
+   stage's `mitigation-plan`/`mitigation-owner` content.
 
 5. Monitoring (`## Monitoring`, ISO 31000 §6.6, monitoring and review)
    — state the review/due date and what would trigger re-assessment
