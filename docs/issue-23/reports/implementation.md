@@ -76,5 +76,39 @@ with SKIP.
 ## What did not work
 None.
 
+## Hunt
+`docs/reports/2026-08-09-hunt-implementation.md` — before-landing dispatch,
+stance 0. Finding: a bogus/incompatible-but-non-empty
+`hooks/lib/gate-lib.sh` resolved via `CLAUDE_PLUGIN_ROOT_CORE` (or
+`resolve_core`'s sibling-candidate path) sources without error but is
+missing the `gate_*` functions the gate scripts call, and those gate
+scripts have no fail-closed guard past the `.` sourcing line (only
+`set -u`, not `set -e`) — so a stale/incompatible core silently turns
+every DENY case into ALLOW.
+
+resolved_findings:
+- ref: docs/reports/2026-08-09-hunt-implementation.md
+  disposition: out-of-scope
+  reason: the root cause is `proposal-shape-gate.sh` (and its 3
+    siblings) lacking a fail-closed guard past their own `.` sourcing
+    line — the same gap exists on `main` today, unchanged by this
+    build. This proposal's write set explicitly excludes "changing
+    gate-lib.sh or any gate script's own sourcing line" (## Out of
+    scope). `resolve_core`'s `-s` check does not weaken anything: the
+    prior code path (`${CLAUDE_PLUGIN_ROOT_CORE:-fallback}/hooks/lib/gate-lib.sh`,
+    sourced directly by each gate script) had zero content validation
+    either, so this is a pre-existing production gate defect the
+    survey did not surface, not a regression introduced by adopting
+    the test-env resolution convention. Filed for follow-up as a
+    separate issue rather than fixed here (out of this proposal's
+    frozen write set).
+
 ## Open findings
-None.
+One, filed for follow-up (not blocking this delivery — see
+`resolved_findings` above): gate scripts across all 4 plugins fail
+open, not closed, when their sourced `gate-lib.sh` is present but
+incompatible/stale (missing expected functions). Resolution path: a
+new issue proposing a fail-closed guard in each gate script (e.g.
+`command -v gate_trap_fail_closed >/dev/null || exit 2` immediately
+after the `.` sourcing line, or `set -e` scoped to the sourcing
+block), scoped separately from this issue's write set.
