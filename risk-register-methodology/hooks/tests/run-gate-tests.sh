@@ -13,6 +13,15 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE="$SCRIPT_DIR/../register-fields-gate.sh"
 
+# shellcheck source=lib/resolve-core.sh
+. "$SCRIPT_DIR/lib/resolve-core.sh"
+RESOLVED_CORE="$(resolve_core "$SCRIPT_DIR/../../../core" "$SCRIPT_DIR/../../../../tokenmaxxxer-core/core")"
+RESOLVE_EC=$?
+if [ "$RESOLVE_EC" -ne 0 ]; then
+  exit 75
+fi
+export CLAUDE_PLUGIN_ROOT_CORE="$RESOLVED_CORE"
+
 WORKDIR="$(mktemp -d)"
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT

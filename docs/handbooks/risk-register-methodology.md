@@ -88,3 +88,14 @@ matcher gained `NotebookEdit` for matcher/code parity with the gate's
 existing `gate_reconstruct_write` handling. `hooks/tests/run-gate-tests.sh`
 gained a case asserting exit 2 when `CLAUDE_PLUGIN_ROOT_CORE` points at
 a nonexistent path, proving the fail-closed guard dynamically.
+
+## Test-env resolution convention (issue-23)
+
+Per `docs/issue-23/proposals/implementation.md`, `hooks/tests/run-gate-tests.sh`
+now resolves core via `hooks/tests/lib/resolve-core.sh` before running any
+case, per the canonical convention at `tokenmaxxxer/on-the-record`
+`docs/specs/test-env-resolution.md` (issue #551): `CLAUDE_PLUGIN_ROOT_CORE`
+if set and resolvable, else a sibling core checkout, else SKIP (exit 75,
+explicit stderr message) instead of running cases that would fail
+misleadingly on a plain checkout. The gate's own fail-closed case (a bad
+`CLAUDE_PLUGIN_ROOT_CORE` path) is unchanged.

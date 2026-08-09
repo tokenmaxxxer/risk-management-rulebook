@@ -131,3 +131,14 @@ regression case that shadows `mktemp` on `PATH` with an
 always-failing marker binary scoped to the gate subprocess, asserting
 both that the gate still ALLOWs a valid payload and that the marker
 file the shadow binary would touch is never created.
+
+## Test-env resolution convention (issue-23)
+
+Per `docs/issue-23/proposals/implementation.md`, `hooks/tests/run-gate-tests.sh`
+now resolves core via `hooks/tests/lib/resolve-core.sh` before running any
+case, per the canonical convention at `tokenmaxxxer/on-the-record`
+`docs/specs/test-env-resolution.md` (issue #551): `CLAUDE_PLUGIN_ROOT_CORE`
+if set and resolvable, else a sibling core checkout, else SKIP (exit 75,
+explicit stderr message) instead of running cases that would fail
+misleadingly on a plain checkout. The gate's own fail-closed case (a bad
+`CLAUDE_PLUGIN_ROOT_CORE` path) is unchanged.
