@@ -131,6 +131,13 @@ claude plugin install risk-management
 - warrant-hunter agent — provided by core's `warrant/` plugin (core issue #63);
   no local copy in this rulebook
 - `docs/specs/approvers.md` — Approve-authority allowlist (see below)
+- `playbook/<topic>.md` — operational decision-rule playbook (issue
+  #1174): condition -> choice -> source rules per decision axis, one
+  file per axis, each with a `rule_count_floor`/`axis` front-matter
+  pair for the (future) depth gate to read. Covers the calibration/
+  selection/threshold/cadence/aggregation judgment layer that sits on
+  top of the ISO 31000 process-shape and register-schema methodology
+  above.
 
 This is scaffolding, not a finished rulebook: fill in doctrine detail,
 handoff enforcement, and any role-specific progress gate before treating
