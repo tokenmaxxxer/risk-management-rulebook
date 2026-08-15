@@ -35,3 +35,11 @@ rule_count_floor: 10
    un-traceable threshold cannot be checked for staleness against
    subsequent appetite changes.
    source: https://www.wolterskluwer.com/en/expert-insights/risk-appetite-and-risk-tolerance-whats-the-difference
+5. When a category's threshold is bound by an external regulatory or
+   contractual limit (a specific clause, control ID, or numeric cap in
+   a named framework), cite that exact clause/control ID on the
+   threshold entry instead of stating only the entity-level appetite
+   band it was decomposed from — a threshold traceable only to a
+   generic appetite band cannot be checked against the specific
+   external requirement that actually constrains it when that
+   requirement changes.

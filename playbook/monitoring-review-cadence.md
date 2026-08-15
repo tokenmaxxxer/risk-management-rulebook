@@ -31,3 +31,8 @@ rule_count_floor: 10
    do not carry forward a review frequency the entry's current risk
    profile no longer justifies.
    source: https://sbnsoftware.com/blog/how-often-should-risk-assessments-be-reviewed-and-updated/
+5. When a mitigation control is marked complete, trigger an immediate
+   residual-risk re-score and re-derive the review cadence from that
+   fresh residual score — do not let the entry keep the cadence set
+   from its pre-mitigation (inherent) score, since the whole point of
+   the completed control was to change the risk the entry represents.

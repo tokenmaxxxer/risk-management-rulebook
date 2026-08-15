@@ -33,3 +33,10 @@ rule_count_floor: 10
    leaving stale near-zero entries in the active set — stale entries
    dilute a reviewer's attention on the risks that still matter.
    source: https://fastercapital.com/content/Risk-Aggregation-Data--How-to-Aggregate-and-Consolidate-Your-Risk-Data-across-Different-Sources-and-Dimensions.html
+5. When ordering a consolidated action queue across register entries,
+   sort by severity band first and use likelihood/velocity only to
+   break ties within a severity band — never sort by a single score
+   that multiplies likelihood and impact together, since a
+   high-severity/low-likelihood entry can land below a
+   moderate-severity/high-likelihood entry on a multiplied score even
+   though the former needs attention regardless of how rare it is.

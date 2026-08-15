@@ -36,3 +36,11 @@ rule_count_floor: 10
    as a response decision; strip the Accept label until an owner and
    monitoring trigger are attached.
    source: https://internalauditor.theiia.org/en/articles/2022/february/risk-acceptance/
+6. When selecting a Mitigate control, prefer a control that removes or
+   reduces the hazard at its source over a protective/add-on control,
+   and prefer a protective/add-on control over an information-only
+   control (a warning, a monitoring alert, a training note) — rank
+   candidate controls in that order and pick the highest-ranked one
+   that is feasible, since an information-only control leaves the
+   underlying hazard rate unchanged and only shifts the burden onto
+   someone noticing and reacting in time.
