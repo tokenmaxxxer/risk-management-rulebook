@@ -42,4 +42,3 @@ axis is the calibration judgment behind the numbers that go in it).
    qualitative-only score cannot be compared against a budget or an
    insurance limit, and a quantitative-only score loses the band's
    comparability across dissimilar risk types.
-   source: https://github.com/Masriyan/Claude-Code-CyberSecurity-Skill

@@ -36,4 +36,3 @@ rule_count_floor: 10
    fresh residual score — do not let the entry keep the cadence set
    from its pre-mitigation (inherent) score, since the whole point of
    the completed control was to change the risk the entry represents.
-   source: https://github.com/borghei/Claude-Skills/blob/main/ra-qm-team/risk-management-specialist/SKILL.md

@@ -43,4 +43,3 @@ rule_count_floor: 10
    generic appetite band cannot be checked against the specific
    external requirement that actually constrains it when that
    requirement changes.
-   source: https://github.com/Sushegaad/Claude-Skills-Governance-Risk-and-Compliance

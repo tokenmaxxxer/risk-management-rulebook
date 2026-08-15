@@ -40,4 +40,3 @@ rule_count_floor: 10
    high-severity/low-likelihood entry can land below a
    moderate-severity/high-likelihood entry on a multiplied score even
    though the former needs attention regardless of how rare it is.
-   source: https://github.com/ddunnock/claude-plugins/blob/main/skills/fmea-analysis/SKILL.md

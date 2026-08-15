@@ -44,4 +44,3 @@ rule_count_floor: 10
    that is feasible, since an information-only control leaves the
    underlying hazard rate unchanged and only shifts the burden onto
    someone noticing and reacting in time.
-   source: https://github.com/borghei/Claude-Skills/blob/main/ra-qm-team/risk-management-specialist/SKILL.md
