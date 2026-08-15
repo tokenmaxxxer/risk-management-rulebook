@@ -35,3 +35,11 @@ axis is the calibration judgment behind the numbers that go in it).
    the register — an uncited verbal score does not satisfy ISO 31000's
    evaluation-input requirement.
    source: https://mindsetcyber.com.au/iso-31000-risk-matrix/
+5. When a risk carries a plausible dollar-denominated loss estimate
+   (frequency of occurrence x expected single-event loss), record that
+   annualized-loss-expectancy figure alongside the qualitative
+   likelihood/impact band rather than in place of it — a
+   qualitative-only score cannot be compared against a budget or an
+   insurance limit, and a quantitative-only score loses the band's
+   comparability across dissimilar risk types.
+   source: https://github.com/Masriyan/Claude-Code-CyberSecurity-Skill
